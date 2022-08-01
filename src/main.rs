@@ -11,7 +11,7 @@ struct Switch {
 impl Switch {
     async fn new(rev: mpsc::Receiver<u8>) ->Self {
         let switch = Self {
-            listener: TcpListener::bind("0.0.0.0:6379").await.unwrap(),
+            listener: TcpListener::bind("0.0.0.0:10002").await.unwrap(),
             receiver: rev
         };
 
