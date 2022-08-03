@@ -1,53 +1,44 @@
 #[macro_use] extern crate rocket;
-use std::vec;
+use std::{vec, sync::Arc};
 
-use tokio::{net::{TcpListener}, io::AsyncWriteExt, sync::mpsc};
+use tokio::{net::TcpListener, sync::{mpsc, Mutex}, io::AsyncWriteExt};
 
-struct Switch {
-    listener: TcpListener,
-    receiver: mpsc::Receiver<u8>
+
+#[get("/on")]
+async fn switch_on(switch: &rocket::State<mpsc::Sender<u8>>) -> &'static str {
+    switch.send(1).await.unwrap();
+    "ok"
 }
-
-impl Switch {
-    async fn new(rev: mpsc::Receiver<u8>) ->Self {
-        let switch = Self {
-            listener: TcpListener::bind("0.0.0.0:10002").await.unwrap(),
-            receiver: rev
-        };
-
-        return switch
-    }
-
-    async fn serv(&mut self) {
-        // The second item contains the IP and port of the new connection.
-        dbg!(1);
-
-        let (mut socket, _) = self.listener.accept().await.unwrap();
-        dbg!(2);
-        while let Some(message) = self.receiver.recv().await {
-            dbg!(3);
-            println!("GOT = {}", message);
-            let command = [message];
-            socket.write_all(&command).await.unwrap();
-            dbg!(4);
-        }
-    }
-
-}
-
-#[get("/")]
-async fn index(switch: &rocket::State<mpsc::Sender<u8>>) -> &'static str {
-    switch.send(65).await.unwrap();
-    "Hello, world!"
+#[get("/off")]
+async fn switch_off(switch: &rocket::State<mpsc::Sender<u8>>) -> &'static str {
+    switch.send(0).await.unwrap();
+    "ok"
 }
 
 #[launch]
 async fn rocket() -> _ {
-    let (tx, rx) = mpsc::channel(32);
-    let mut s = Switch::new(rx).await;
+    let (tx, mut rx) = mpsc::channel(32);
+    let listener  = TcpListener::bind("0.0.0.0:10002").await.unwrap();
+
+    let clients = Arc::new(Mutex::new(vec![]));
+    let new_clients = clients.clone();
     tokio::spawn(async move {
-        s.serv().await;
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            new_clients.lock().await.push(stream);
+        }
+    });
+    tokio::spawn(async move {
+        while let Some(message) = rx.recv().await  {
+            println!("GOT = {}", message);
+            let command = [message];
+            let mut streams = clients.lock().await;
+            for stream in streams.iter_mut() {
+                dbg!(1);
+                stream.write_all(&command).await.unwrap();
+            }
+        }
     });
     
-    rocket::build().manage(tx).mount("/", routes![index])
+    rocket::build().manage(tx).mount("/", routes![switch_on, switch_off])
 }
