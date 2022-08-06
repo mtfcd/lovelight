@@ -25,6 +25,7 @@ async fn rocket() -> _ {
     tokio::spawn(async move {
         loop {
             let (stream, _) = listener.accept().await.unwrap();
+            dbg!("new connection.");
             new_clients.lock().await.push(stream);
         }
     });
@@ -33,9 +34,16 @@ async fn rocket() -> _ {
             println!("GOT = {}", message);
             let command = [message];
             let mut streams = clients.lock().await;
-            for stream in streams.iter_mut() {
-                dbg!(1);
-                stream.write_all(&command).await.unwrap();
+            for (i, stream) in streams.iter_mut().enumerate() {
+                dbg!("stream", i);
+                match stream.write_all(&command).await {
+                    Ok(_) => {
+                        println!("command sent.");
+                    },
+                    Err(e) => {
+                        println!("error {}", e);
+                    },
+                }
             }
         }
     });
